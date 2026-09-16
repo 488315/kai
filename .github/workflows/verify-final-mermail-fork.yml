@@ -1,0 +1,59 @@
+name: Verify final Mermail fork branch
+
+on:
+  push:
+    branches:
+      - validate-mermail-vulnerability-intake
+    paths:
+      - .github/workflows/verify-final-mermail-fork.yml
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact fork branch
+        uses: actions/checkout@v4
+        with:
+          repository: 488315/mermail-skills
+          ref: feat/mermail-vulnerability-intake
+          fetch-depth: 0
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify tests and microscopic diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=b6b98f3bf3d27373f80b403a84dcba370af8b882
+          test "$(git rev-list --count "$base"..HEAD)" -eq 1
+          npm test
+          git diff --check "$base"..HEAD
+          test -z "$(git diff --name-only "$base"..HEAD -- tests/validate.mjs)"
+
+          git diff --name-only "$base"..HEAD | sort > /tmp/actual-files
+          cat > /tmp/expected-files <<'EOF'
+          README.md
+          compatibility.json
+          skills/mermail-vulnerability-intake/SKILL.md
+          skills/mermail-vulnerability-intake/agents/openai.yaml
+          skills/mermail-vulnerability-intake/references/security.md
+          skills/mermail-vulnerability-intake/references/tools.md
+          skills/mermail-vulnerability-intake/references/workflows.md
+          skills/mermail/SKILL.md
+          skills/mermail/references/routing.md
+          tests/scenarios.json
+          tool-coverage.json
+          EOF
+          diff -u /tmp/expected-files /tmp/actual-files
+
+          test "$(git diff --numstat "$base"..HEAD -- README.md | awk '{print $1":"$2}')" = '1:0'
+          test "$(git diff --numstat "$base"..HEAD -- tool-coverage.json | awk '{print $1":"$2}')" = '1:0'
+          test "$(git diff --numstat "$base"..HEAD -- tests/scenarios.json | awk '{print $1":"$2}')" = '6:1'
+          grep -F '"mermail-vulnerability-intake",' tool-coverage.json
+          grep -F '"skills": 17' compatibility.json
+          grep -F 'vulnerability-intake-prompt-injection' tests/scenarios.json
+          grep -F 'vulnerability-intake-flagged-attachment' tests/scenarios.json
+          grep -F 'Do not execute proof-of-concept steps' skills/mermail-vulnerability-intake/SKILL.md
